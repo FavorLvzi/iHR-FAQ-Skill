@@ -1,0 +1,341 @@
+<!-- F&Q-SKILL · 公式格式化+值标注渲染模板
+  用于问题4「薪资项计算逻辑解读」的复杂公式输出增强。
+  使用方式：AI 读取本模板 → 替换 CONFIG 数据 → 输出新 HTML。
+  模板核心复用「公式格式化工具」的 tokenize/parse/render 逻辑（语法见同目录 formula-language.md）。 -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>薪资公式 · 格式化+值标注</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;font-size:13px;color:#2c2c2a;background:#f9fafb;padding:18px 20px 40px;line-height:1.5}
+.wrap{max-width:800px;margin:0 auto}
+h1{font-size:16px;font-weight:500;color:#0F6E56;margin-bottom:2px}
+.meta{font-size:11px;color:#8e929b;margin-bottom:16px}
+.meta b{color:#616670}
+
+/* 原始公式 */
+.raw{background:#F1EFE8;border:0.5px solid #B4B2A9;border-radius:8px;padding:8px 12px;margin-bottom:12px}
+.raw .lbl{font-size:11px;color:#5F5E5A;margin-bottom:4px}
+.raw .txt{font-family:Consolas,"Courier New",monospace;font-size:12px;color:#2c2c2a;word-break:break-all}
+
+/* 格式化渲染区 */
+.render{background:#fff;border:0.5px solid #D3D1C7;border-radius:10px;padding:14px 18px;margin-bottom:14px}
+.render .lbl{font-size:11px;color:#0F6E56;margin-bottom:8px}
+.render .tree{font-family:Consolas,"Courier New",monospace;font-size:12.5px;line-height:2;margin-left:0}
+
+/* token 着色 */
+.t-field{color:#2E6E00}
+.t-num{color:#C45000}
+.t-str{color:#B5351A}
+.t-fn{color:#534AB7}
+.t-op{color:#888780}
+
+/* 值标注标签 */
+.val-tag{display:inline-block;background:#9FE1CB;color:#0F6E56;border-radius:3px;padding:0 5px;font-size:11px;font-weight:500;margin-left:4px;vertical-align:1px}
+.branch-tag{display:inline-block;background:#FAEEDA;color:#854F0B;border-radius:3px;padding:0 5px;font-size:11px;font-weight:500;margin-left:4px;vertical-align:1px}
+
+/* 汇总卡 */
+.summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.scard{flex:1;min-width:120px;background:#fff;border-radius:10px;padding:12px 14px;box-shadow:0 1px 3px rgba(0,0,0,.04);border:0.5px solid #D3D1C7}
+.scard .num{font-size:20px;font-weight:500;color:#1D9E75}
+.scard .lbl{font-size:11px;color:#8e929b;margin-top:2px}
+.scard.match .num{color:#1D9E75}
+.scard.match{background:#E1F5EE;border-color:#1D9E75}
+.scard.mismatch .num{color:#E24B4A}
+.scard.mismatch{background:#FCEBEB;border-color:#E24B4A}
+
+/* 值表 */
+.valuetable{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04);margin-bottom:14px;font-size:12px}
+.valuetable th{background:#F1EFE8;padding:6px 10px;text-align:left;font-weight:500;font-size:11px;color:#5F5E5A}
+.valuetable td{padding:6px 10px;border-bottom:0.5px solid #EFF0F2}
+.valuetable .fv{font-family:Consolas,monospace;color:#1D9E75;font-weight:500}
+
+.note{background:#E6F1FB;border-left:3px solid #378ADD;padding:8px 12px;border-radius:4px;font-size:11px;color:#0C447C;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="title"></h1>
+  <div class="meta" id="meta"></div>
+
+  <div class="raw">
+    <div class="lbl">原始公式（二方 API 返回）</div>
+    <div class="txt" id="rawFormula"></div>
+  </div>
+
+  <div class="render">
+    <div class="lbl">格式化 + 每项实际值标注</div>
+    <div class="tree" id="formulaRender"></div>
+  </div>
+
+  <div class="summary" id="summary"></div>
+  <div id="valueTableWrap"></div>
+  <div class="note" id="note"></div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════
+//  配置区 —— AI 使用本模板时替换以下数据
+// ════════════════════════════════════════════════════════════════
+const CONFIG = {
+  formula: "MAX(0,IF(员工基本信息$纳税人身份=\"居民\",(当前累计应发月薪资合计-IF(社保个人部分实际承担方=\"单位\",0,当前累计社保个人合计)-IF(公积金个人部分实际承担方=\"单位\",0,当前累计公积金个人合计)-累计专项附加扣除及其他合计-当前累计减除费用-累计个人养老金扣除)))",
+
+  values: {
+    "员工基本信息$纳税人身份": { v: "居民", label: "纳税人身份", branch: "走居民分支" },
+    "当前累计应发月薪资合计": { v: 42333.66, label: "累计应发月薪" },
+    "社保个人部分实际承担方": { v: "个人", label: "社保承担方", branch: "≠单位 → 扣社保" },
+    "当前累计社保个人合计": { v: 1040, label: "社保个人" },
+    "公积金个人部分实际承担方": { v: "个人", label: "公积金承担方", branch: "≠单位 → 扣公积金" },
+    "当前累计公积金个人合计": { v: 2400, label: "公积金个人" },
+    "累计专项附加扣除及其他合计": { v: 4000, label: "专项附加" },
+    "当前累计减除费用": { v: 5000, label: "减除费用(5000×月数)" },
+    "累计个人养老金扣除": { v: 0, label: "个人养老金" }
+  },
+
+  final: { computed: 29893.66, actual: 29893.66, label: "应纳税所得额" },
+
+  meta: {
+    employee: "员工C",
+    month: "2025-01",
+    plan: "工资薪金+年终奖",
+    fieldName: "taxablesalary"
+  }
+};
+
+// ════════════════════════════════════════════════════════════════
+//  tokenize（词法分析，提取自公式格式化工具）
+// ════════════════════════════════════════════════════════════════
+function tokenize(src) {
+  const toks = [];
+  let i = 0;
+  while (i < src.length) {
+    if (src[i] === '"') {
+      let j = i + 1;
+      while (j < src.length && src[j] !== '"') j++;
+      toks.push({ t: 'str', v: src.slice(i, j + 1) });
+      i = j + 1; continue;
+    }
+    const fnM = src.slice(i).match(/^([A-Za-z_][A-Za-z0-9_]*)(?=\s*\()/);
+    if (fnM) { toks.push({ t: 'fn', v: fnM[1] }); i += fnM[1].length; continue; }
+    const fldM = src.slice(i).match(/^[\u4e00-\u9fa5A-Za-z_][\u4e00-\u9fa5A-Za-z0-9_]*\$[\u4e00-\u9fa5A-Za-z0-9_]+/);
+    if (fldM) { toks.push({ t: 'field', v: fldM[0] }); i += fldM[0].length; continue; }
+    const numM = src.slice(i).match(/^-?\d+(\.\d+)?/);
+    if (numM) { toks.push({ t: 'num', v: numM[0] }); i += numM[0].length; continue; }
+    const wdM = src.slice(i).match(/^[\u4e00-\u9fa5A-Za-z_][\u4e00-\u9fa5A-Za-z0-9_]*/);
+    if (wdM) { toks.push({ t: 'word', v: wdM[0] }); i += wdM[0].length; continue; }
+    if (/\s/.test(src[i])) { i++; continue; }
+    toks.push({ t: 'ch', v: src[i] }); i++;
+  }
+  return toks;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  parse（AST 构建，提取自公式格式化工具）
+// ════════════════════════════════════════════════════════════════
+function parse(tokens) {
+  let pos = 0;
+  function peek() { return tokens[pos]; }
+  function eat() { return tokens[pos++]; }
+  function parseExpr() {
+    const parts = [];
+    let maxIter = tokens.length + 100;
+    while (pos < tokens.length && --maxIter > 0) {
+      const tk = peek();
+      if (tk.v === ')' || tk.v === ',' || tk.v === '}') break;
+      if (tk.t === 'fn') {
+        const fnTok = eat();
+        if (pos < tokens.length && peek().v === '(') {
+          eat();
+          const result = parseList(')');
+          parts.push({ k: 'call', name: fnTok.v, args: result.items });
+        } else {
+          parts.push({ k: 'tok', tk: fnTok });
+        }
+        continue;
+      }
+      if (tk.v === '{') { eat(); const r = parseList('}'); parts.push({ k: 'arr', items: r.items }); continue; }
+      if (tk.v === '(') { eat(); const r = parseList(')'); parts.push({ k: 'grp', inner: r.items }); continue; }
+      eat(); parts.push({ k: 'tok', tk });
+    }
+    return parts;
+  }
+  function parseList(close) {
+    const items = [], MAX = 5;
+    let stall = 0;
+    while (pos < tokens.length) {
+      if (peek().v === close) { eat(); return { items }; }
+      const before = pos;
+      items.push(parseExpr());
+      if (pos === before) { stall++; if (stall > MAX) return { items }; eat(); continue; }
+      stall = 0;
+      if (pos < tokens.length && peek().v === ',') { eat(); }
+      else if (pos < tokens.length && peek().v === close) { eat(); return { items }; }
+    }
+    return { items };
+  }
+  return parseExpr();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  值查找
+// ════════════════════════════════════════════════════════════════
+function lookup(fieldName) {
+  return CONFIG.values[fieldName] || null;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  render（值标注改造版）
+// ════════════════════════════════════════════════════════════════
+const PAREN_CLS = ['c-p0', 'c-p1', 'c-p2', 'c-p3'];
+const FN_CLASS = { IF: 't-fn', MAX: 't-fn', MIN: 't-fn', CHOOSE: 't-fn', MATCH: 't-fn',
+  IFERROR: 't-fn', IF2: 't-fn', IF3: 't-fn', AND: 't-fn', OR: 't-fn',
+  DATEDIF: 't-fn', EDATE: 't-fn', EOMONTH: 't-fn', DATE: 't-fn', YEAR: 't-fn', MONTH: 't-fn', DAY: 't-fn',
+  VLOOKUP: 't-fn', HLOOKUP: 't-fn', LEFT: 't-fn', SEARCH: 't-fn', SUMIF: 't-fn', SUMIFS: 't-fn',
+  ROUND: 't-fn', ROUNDUP: 't-fn', ROUNDDOWN: 't-fn', ABS: 't-fn', COUNTIF: 't-fn', COUNTIFS: 't-fn' };
+
+function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function indent(d) { return '　'.repeat(d); }
+
+function needsExpand(name, argLen) {
+  const up = name.toUpperCase();
+  return up === 'CHOOSE' || up === 'MATCH' || up === 'IF' || up === 'IFS' || up === 'IFERROR' || argLen > 2;
+}
+
+function renderNode(n, depth) {
+  if (n.k === 'tok') return renderTok(n.tk, depth);
+  if (n.k === 'call') return renderCall(n, depth);
+  if (n.k === 'arr') return renderArr(n, depth);
+  if (n.k === 'grp') {
+    return '<span class="' + PAREN_CLS[depth % 4] + '">(</span>' +
+      renderList(n.inner, depth + 1) +
+      '<span class="' + PAREN_CLS[depth % 4] + '">)</span>';
+  }
+  return '';
+}
+
+function renderTok(tk, depth) {
+  const v = esc(tk.v);
+  if (tk.t === 'field') {
+    const val = lookup(tk.v);
+    const c = '<span class="t-field">' + v + '</span>';
+    if (val) {
+      const suffix = val.branch
+        ? ' <span class="branch-tag">' + esc(String(val.branch)) + '</span>'
+        : '';
+      return '<span style="white-space:nowrap">' + c +
+        ' <span class="val-tag">= ' + esc(String(val.v)) + '</span>' + suffix + '</span>';
+    }
+    return c;
+  }
+  if (tk.t === 'num') return '<span class="t-num">' + v + '</span>';
+  if (tk.t === 'str') return '<span class="t-str">' + esc(v) + '</span>';
+  if (tk.t === 'ch' && /[+\-*/=<>!]/.test(tk.v)) return '<span class="t-op">' + v + '</span>';
+  return v;
+}
+
+function renderList(args, depth) {
+  return args.map(function (a) { return renderNodes(a, depth); }).join(', ');
+}
+
+function renderNodes(nodes, depth) {
+  return nodes.map(function (n) { return renderNode(n, depth); }).join('');
+}
+
+function renderCall(n, depth) {
+  const name = n.name;
+  const fnCls = FN_CLASS[name.toUpperCase()] || '';
+  const fh = '<span class="' + fnCls + '">' + esc(name) + '</span>';
+  const op = '<span class="' + PAREN_CLS[depth % 4] + '">(</span>';
+  const cp = '<span class="' + PAREN_CLS[depth % 4] + '">)</span>';
+
+  if (!needsExpand(name, n.args.length)) {
+    return fh + op + renderList(n.args, depth + 1) + cp;
+  }
+
+  const d1 = depth + 1;
+  const parts = n.args.map(function (a) {
+    return '<span style="display:block;padding-left:' + (d1 * 14) + 'px">' + renderNodes(a, d1) + '</span>';
+  });
+  return '<span style="display:block">' + fh + op + '</span>' +
+    parts.join('<span style="display:block">,</span>') +
+    '<span style="padding-left:' + (depth * 14) + 'px">' + cp + '</span>';
+}
+
+function renderArr(n, depth) {
+  const op = '<span class="' + PAREN_CLS[depth % 4] + '">{</span>';
+  const cp = '<span class="' + PAREN_CLS[depth % 4] + '">}</span>';
+  if (n.items.length <= 2) return op + renderList(n.items, depth + 1) + cp;
+  const d1 = depth + 1;
+  return op + '\n' + n.items.map(function (a) {
+    return indent(d1) + renderNodes(a, d1);
+  }).join(',\n') + '\n' + indent(depth) + cp;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  收集值表
+// ════════════════════════════════════════════════════════════════
+function collectValues(ast, vals) {
+  if (Array.isArray(ast)) { ast.forEach(function (n) { collectValues(n, vals); }); return; }
+  if (ast.k === 'tok' && ast.tk && ast.tk.t === 'field') {
+    var v = lookup(ast.tk.v);
+    if (v && !(ast.tk.v in vals)) vals[ast.tk.v] = v;
+  }
+  if (ast.k === 'call') { ast.args.forEach(function (a) { collectValues(a, vals); }); }
+  if (ast.k === 'arr') { ast.items.forEach(function (a) { collectValues(a, vals); }); }
+  if (ast.k === 'grp') { collectValues(ast.inner, vals); }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  主流程
+// ════════════════════════════════════════════════════════════════
+(function main() {
+  var f = CONFIG.formula;
+  if (/^=/.test(f)) f = f.slice(1);
+
+  document.getElementById('title').textContent = CONFIG.meta.fieldName + ' · 计算逻辑解读';
+  document.getElementById('meta').innerHTML =
+    '<b>' + esc(CONFIG.meta.employee) + '</b> · ' + esc(CONFIG.meta.month) +
+    ' · 「' + esc(CONFIG.meta.plan) + '」方案';
+
+  document.getElementById('rawFormula').textContent = '=' + f;
+
+  var toks = tokenize(f);
+  var ast = parse(toks);
+  document.getElementById('formulaRender').innerHTML = renderNodes(ast, 0);
+
+  // 汇总
+  var match = Math.abs((CONFIG.final.computed||0) - (CONFIG.final.actual||0)) < 0.05;
+  document.getElementById('summary').innerHTML =
+    '<div class="scard match"><div class="num">' + (CONFIG.final.computed||'--').toLocaleString() + '</div>' +
+    '<div class="lbl">公式计算值</div></div>' +
+    '<div class="scard match"><div class="num">' + (CONFIG.final.actual||'--').toLocaleString() + '</div>' +
+    '<div class="lbl">#67 实际值</div></div>' +
+    '<div class="scard ' + (match ? 'match' : 'mismatch') + '"><div class="num">' +
+    (match ? '一致' : '差异') + '</div><div class="lbl">验证结果</div></div>';
+
+  // 值表
+  var vals = {};
+  collectValues(ast, vals);
+  var keys = Object.keys(vals);
+  if (keys.length > 0) {
+    var rows = keys.map(function (k) {
+      var v = vals[k];
+      return '<tr><td>' + esc(v.label || k) + '</td><td style="font-size:11px;color:#8e929b">' +
+        esc(k) + '</td><td class="fv">' + esc(String(v.v)) + '</td>' +
+        '<td style="font-size:11px;color:#8e929b">' + (v.branch ? esc(v.branch) : '—') + '</td></tr>';
+    }).join('');
+    document.getElementById('valueTableWrap').innerHTML =
+      '<table class="valuetable"><thead><tr><th>变量</th><th>字段引用</th><th>取值</th><th>分支/说明</th></tr></thead><tbody>' +
+      rows + '</tbody></table>';
+  }
+
+  document.getElementById('note').innerHTML =
+    '数据来源：公式 = 二方 <code>companySalaryfieldMetas/list</code> · 值 = OpenAPI #67 · 语法 = formula-language.md' +
+    (match ? '' : ' · <b>公式值 ≠ 实际值：以核算结果为准</b>');
+})();
+</script>
+</body>
+</html>
