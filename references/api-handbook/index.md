@@ -155,23 +155,6 @@
 ---
 
 
-### [10-权限管理](./10-权限管理/README.md)
-
-| 子模块 | 接口编号 | 说明 |
-|--------|---------|------|
-| [authcenter-用户信息-me](./10-权限管理/authcenter-用户信息-me.md) | 无编号 | 当前用户权限信息（authorities 角色/admin 标志/boundCompanyList 多公司，2026-08-18 抓包） |
-| [authority-用户菜单树](./10-权限管理/authority-用户菜单树.md) | 无编号 | 用户功能权限菜单树（menu[]/authorityId，2026-08-18 抓包） |
-| [authcenter-简单用户-手机号校验](./10-权限管理/authcenter-简单用户-手机号校验.md) | 无编号 | 授权第1步：手机号是否存在（existByMobile，2026-08-18 抓包） |
-| [authcenter-简单用户-更新创建](./10-权限管理/authcenter-简单用户-更新创建.md) | 无编号 | 授权第2步：创建简单用户返回 userId（simpleUser/update） |
-| [authcenter-子HR-管理员列表](./10-权限管理/authcenter-子HR-管理员列表.md) | 无编号 | 授权第3步：子HR/管理员列表（simpleUser/subHr/list） |
-| [authcenter-简单用户-批量查询](./10-权限管理/authcenter-简单用户-批量查询.md) | 无编号 | 用户详情含角色+数据权限（listByIds → roleList/dataAuths） |
-| [authority-角色管理](./10-权限管理/authority-角色管理.md) | 无编号 | 角色CRUD：isNameExist校验/updateRole创建/role/page列表（用例2核心） |
-| [manage-公司应用列表](./10-权限管理/manage-公司应用列表.md) | 无编号 | 已开通应用（associatedFunctionIds 功能权限点，2026-08-18 抓包） |
-| [manage-合同公司列表](./10-权限管理/manage-合同公司列表.md) | 无编号 | 合同公司（contractCorpIds 数据源 + departmentIds 关联，2026-08-18 抓包） |
-| [authority-角色功能树](./10-权限管理/authority-角色功能树.md) | 无编号 | 查角色已分配功能：role_fun/v2/tree?roleId（APP/PC双端+check标记，与authorizationForRole配对，2026-08-18 抓包） |
-| [authority-用户绑定角色](./10-权限管理/authority-用户绑定角色.md) | 无编号 | 用户绑定角色 bind_role + whileBind 候选 + 角色功能授权 authorizationForRole（用例1核心，2026-08-18 抓包） |
-| [authority-用户数据授权](./10-权限管理/authority-用户数据授权.md) | 无编号 | 数据范围完整版：基础层+功能级authorityTree+数据源（treeSelector/Corporation），2026-08-18 抓包 |
-
 ## 快速接口对照表
 
 | # | 接口名称 | 路径 | 方式 | 鉴权 | 模块 |

@@ -1,0 +1,4 @@
+*.zip
+host-cookies.txt
+openapi-credentials.txt
+.workbuddy/
